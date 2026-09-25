@@ -10,8 +10,22 @@ use AndyDefer\LaravelActivity\Repositories\ActivityRepository;
 use AndyDefer\LaravelActivity\Services\ActivityService;
 use Illuminate\Support\ServiceProvider;
 
+/**
+ * Service provider for the Laravel Activity package.
+ *
+ * Registers the package configuration, container bindings, migrations, and
+ * publishable assets. Bindings follow the contract-first convention:
+ * consumers depend on the interfaces, never on the concrete implementations.
+ *
+ * Published assets:
+ *  - `config/activity.php`    → tag `activity-config`
+ *  - `database/migrations/*`  → tag `activity-migrations`
+ */
 final class ActivityServiceProvider extends ServiceProvider
 {
+    /**
+     * Register the package configuration and container bindings.
+     */
     public function register(): void
     {
         $this->mergeConfigFrom(
@@ -23,6 +37,11 @@ final class ActivityServiceProvider extends ServiceProvider
         $this->registerService();
     }
 
+    /**
+     * Boot the package: load migrations and expose publishable assets.
+     *
+     * Only executed in console context to keep the HTTP bootstrap lean.
+     */
     public function boot(): void
     {
         if ($this->app->runningInConsole()) {

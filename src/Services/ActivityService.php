@@ -12,14 +12,31 @@ use AndyDefer\LaravelActivity\Records\ActivityRecord;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 
+/**
+ * Application-level service orchestrating activity tracking.
+ *
+ * Provides a high-level, repository-agnostic API to log activities and to
+ * query, count, check, or clear the activities owned by a given Eloquent model.
+ *
+ * This service is the recommended entry point for consumers: it hides the
+ * repository contract and centralises the translation from raw input into
+ * {@see ActivityFilterRecord} and {@see ActivityRecord} objects.
+ *
+ * @see ActivityServiceInterface
+ */
 final class ActivityService implements ActivityServiceInterface
 {
+    /**
+     * @param  ActivityRepositoryInterface  $activityRepository  Persistence layer for activities.
+     */
     public function __construct(
         private readonly ActivityRepositoryInterface $activityRepository,
     ) {}
 
     /**
      * {@inheritDoc}
+     *
+     * @see ActivityServiceInterface::log()
      */
     public function log(
         Model $owner,
@@ -28,20 +45,20 @@ final class ActivityService implements ActivityServiceInterface
         ?array $data = null,
         ?array $metadata = null,
     ): Model {
-        $record = ActivityRecord::from([
+        return $this->activityRepository->create(ActivityRecord::from([
             'owner_type' => $owner->getMorphClass(),
             'owner_id' => (string) $owner->getKey(),
             'activity_type' => $type,
             'description' => $description,
-            'data' => $data !== null ? new StrictDataObject($data) : null,
-            'metadata' => $metadata !== null ? new StrictDataObject($metadata) : null,
-        ]);
-
-        return $this->activityRepository->create($record);
+            'data' => $this->toStrictDataObject($data),
+            'metadata' => $this->toStrictDataObject($metadata),
+        ]));
     }
 
     /**
      * {@inheritDoc}
+     *
+     * @see ActivityServiceInterface::getFor()
      */
     public function getFor(Model $owner, ?int $limit = null): Collection
     {
@@ -50,6 +67,8 @@ final class ActivityService implements ActivityServiceInterface
 
     /**
      * {@inheritDoc}
+     *
+     * @see ActivityServiceInterface::getForByType()
      */
     public function getForByType(Model $owner, string $type, ?int $limit = null): Collection
     {
@@ -58,6 +77,8 @@ final class ActivityService implements ActivityServiceInterface
 
     /**
      * {@inheritDoc}
+     *
+     * @see ActivityServiceInterface::getLatestFor()
      */
     public function getLatestFor(Model $owner): ?Model
     {
@@ -66,6 +87,8 @@ final class ActivityService implements ActivityServiceInterface
 
     /**
      * {@inheritDoc}
+     *
+     * @see ActivityServiceInterface::countFor()
      */
     public function countFor(Model $owner): int
     {
@@ -74,6 +97,8 @@ final class ActivityService implements ActivityServiceInterface
 
     /**
      * {@inheritDoc}
+     *
+     * @see ActivityServiceInterface::countForByType()
      */
     public function countForByType(Model $owner, string $type): int
     {
@@ -82,24 +107,49 @@ final class ActivityService implements ActivityServiceInterface
 
     /**
      * {@inheritDoc}
+     *
+     * @see ActivityServiceInterface::hasActivityOfType()
      */
     public function hasActivityOfType(Model $owner, string $type): bool
     {
-        return $this->activityRepository->exists(ActivityFilterRecord::from([
-            'owner_type' => $owner->getMorphClass(),
-            'owner_id' => (string) $owner->getKey(),
-            'activity_type' => $type,
-        ]));
+        return $this->activityRepository->exists(
+            $this->buildOwnerFilter($owner, type: $type)
+        );
     }
 
     /**
      * {@inheritDoc}
+     *
+     * @see ActivityServiceInterface::clearFor()
      */
     public function clearFor(Model $owner): int
     {
-        return $this->activityRepository->deleteBulk(ActivityFilterRecord::from([
+        return $this->activityRepository->deleteBulk(
+            $this->buildOwnerFilter($owner)
+        );
+    }
+
+    /**
+     * Build a filter record identifying activities owned by the given model,
+     * optionally restricted to a specific activity type.
+     */
+    private function buildOwnerFilter(Model $owner, ?string $type = null): ActivityFilterRecord
+    {
+        return ActivityFilterRecord::from([
             'owner_type' => $owner->getMorphClass(),
             'owner_id' => (string) $owner->getKey(),
-        ]));
+            'activity_type' => $type,
+        ]);
+    }
+
+    /**
+     * Wrap the given payload into a {@see StrictDataObject}, or return null
+     * when no payload was provided.
+     *
+     * @param  array<string, mixed>|null  $payload
+     */
+    private function toStrictDataObject(?array $payload): ?StrictDataObject
+    {
+        return $payload !== null ? new StrictDataObject($payload) : null;
     }
 }

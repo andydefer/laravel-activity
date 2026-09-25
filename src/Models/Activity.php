@@ -18,19 +18,29 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
- * Activity model representing a tracked action on an owner.
+ * Eloquent model representing a tracked activity performed on an owner.
  *
- * @property string $id
- * @property string $owner_type
- * @property string $owner_id
- * @property EnumerableInterface $activity_type
- * @property string|null $description
- * @property StrictDataObject|null $data
- * @property StrictDataObject|null $metadata
- * @property Carbon|null $created_at
- * @property Carbon|null $updated_at
- * @property Carbon|null $deleted_at
- * @property-read Model|null $owner
+ * Each activity belongs to a polymorphic owner (via `owner_type` / `owner_id`)
+ * and carries an activity type, an optional description, plus optional
+ * `data` and `metadata` payloads stored as {@see StrictDataObject} instances.
+ *
+ * The primary key is a UUID string generated automatically on creation.
+ * Soft deletes are enabled: records are flagged with `deleted_at` rather than
+ * physically removed.
+ *
+ * @property string $id UUID primary key.
+ * @property string $owner_type Fully-qualified class name of the owning model.
+ * @property string $owner_id Identifier of the owning model instance.
+ * @property EnumerableInterface $activity_type Activity type value object.
+ * @property string|null $description Human-readable description, if any.
+ * @property StrictDataObject|null $data Arbitrary activity payload, if any.
+ * @property StrictDataObject|null $metadata Arbitrary contextual metadata, if any.
+ * @property Carbon|null $created_at Creation timestamp.
+ * @property Carbon|null $updated_at Last update timestamp.
+ * @property Carbon|null $deleted_at Soft-deletion timestamp.
+ * @property-read Model|null            $owner         Polymorphic owner of the activity.
+ *
+ * @use HasFactory<ActivityFactory>
  */
 class Activity extends Model
 {
@@ -56,35 +66,49 @@ class Activity extends Model
         'activity_type' => EnumCast::class,
     ];
 
+    /**
+     * Resolve the database table name from the package configuration.
+     *
+     * Falls back to `activities` when no custom table is configured.
+     */
     public function getTable(): string
     {
         return (string) config('activity.table', 'activities');
     }
 
+    /**
+     * Bind the dedicated activity factory to this model.
+     */
     protected static function newFactory(): Factory
     {
         return ActivityFactory::new();
     }
 
+    /**
+     * Register model event listeners.
+     */
     protected static function boot(): void
     {
         parent::boot();
 
         self::creating(function (self $activity): void {
-            if (empty($activity->id)) {
-                $activity->id = (string) str()->uuid();
-            }
+            $activity->assignUuidIfMissing();
         });
     }
 
     /**
-     * The owner of the activity.
+     * The polymorphic owner of the activity.
+     *
+     * @return MorphTo<Model, $this>
      */
     public function owner(): MorphTo
     {
         return $this->morphTo();
     }
 
+    /**
+     * Cast the `data` column to a {@see StrictDataObject}, or null when absent.
+     */
     protected function data(): Attribute
     {
         return AttributeProxy::nullable(
@@ -93,11 +117,24 @@ class Activity extends Model
         );
     }
 
+    /**
+     * Cast the `metadata` column to a {@see StrictDataObject}, or null when absent.
+     */
     protected function metadata(): Attribute
     {
         return AttributeProxy::nullable(
             StrictDataObject::class,
             column: 'metadata',
         );
+    }
+
+    /**
+     * Ensure the model has a UUID primary key before persistence.
+     */
+    private function assignUuidIfMissing(): void
+    {
+        if (empty($this->id)) {
+            $this->id = (string) str()->uuid();
+        }
     }
 }
